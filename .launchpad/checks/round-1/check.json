@@ -1,0 +1,23 @@
+{
+  "name": "round 1: one deal, one link",
+  "run": "node .launchpad/checks/round-1/run.mjs",
+  "timeoutSeconds": 300,
+  "tests": [
+    "Fill: after createDeal then fill, the maker holds buyAmount more of buyToken, the taker holds sellAmount more of sellToken, and the contract holds nothing of either",
+    "All or nothing: a fill by a taker who lacks the tokens or the allowance fails and changes no balance",
+    "Private and open: a deal with a taker is filled only by that address; a deal with address(0) is filled by anyone",
+    "Once: a deal fills once; a filled or cancelled deal cannot be filled or cancelled again",
+    "Expiry: a fill at or after the expiry fails; the maker can still cancel and holds every token again",
+    "Cancel: only the maker cancels; then the maker holds every token again and a fill fails",
+    "Refused at creation: a zero amount, the same token on both sides, an expiry that is not in the future",
+    "Awkward tokens: a token whose transfer returns nothing (as USDT does) works as sellToken and as buyToken",
+    "Re-entry: a token that calls back into fill or cancel during its transfer cannot make a deal pay twice",
+    "Nobody else: besides createDeal, fill and cancel, no function of the contract changes anything; no constructor argument, no fallback, nothing payable",
+    "Interface: ids count up from 1, getDeal returns each deal's terms and status, an unknown id has status None, and createDeal, fill and cancel emit their events",
+    "Show: an open deal's link shows what the taker pays and receives, the maker and the expiry, with no wallet in the browser",
+    "Fill from the page: with a wallet that holds the tokens, at most four presses of primary-action end with the deal filled on the chain and deal-status saying so",
+    "States: a filled, a cancelled and an expired deal, and an id that does not exist, each say so and offer no fill",
+    "Not for you: a deal reserved for one address, opened with another wallet, names the address it is for and offers no fill",
+    "Create from the page: the form at /#/new and at most four presses of primary-action end with a link in deal-link to a deal with exactly the entered terms, which its taker can fill"
+  ]
+}

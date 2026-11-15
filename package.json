@@ -1,0 +1,22 @@
+{
+  "name": "otc-fam",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A link for one OTC token deal: open it, check it, fill it. Non-custodial.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "deploy": "node scripts/deploy.mjs",
+    "check": "node .launchpad/checks/round-1/run.mjs"
+  },
+  "devDependencies": {
+    "@nomicfoundation/edr": "0.25.1",
+    "ethers": "6.17.0",
+    "playwright": "1.63.0",
+    "solc": "0.8.38"
+  }
+}
