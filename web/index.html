@@ -49,8 +49,8 @@
           <div><dt>Expires</dt><dd data-testid="expires"></dd></div>
         </dl>
       </div>
-      <p class="notice" data-testid="notice" role="status" hidden></p>
-      <button type="button" class="primary" data-testid="primary-action" disabled hidden>Loading deal…</button>
+      <p class="notice" id="deal-notice" data-testid="notice" role="status" tabindex="-1"></p>
+      <button type="button" class="primary" data-testid="primary-action" aria-describedby="deal-notice" disabled hidden>Loading deal…</button>
       <details class="token-details" data-token-details hidden>
         <summary>Token addresses</summary>
         <dl class="facts">
@@ -101,12 +101,12 @@
             </span>
           </label>
         </fieldset>
-        <p class="notice" data-testid="notice" role="status" hidden></p>
-        <button type="submit" class="primary" data-testid="primary-action" disabled>Loading network…</button>
+        <p class="notice" id="create-notice" data-testid="notice" role="status" tabindex="-1"></p>
+        <button type="submit" class="primary" data-testid="primary-action" aria-describedby="create-notice" disabled>Loading network…</button>
       </form>
-      <div data-created hidden>
-        <p class="notice success">Your deal is open. Send this link to the other side.</p>
-        <a class="deal-link address" data-deal-link></a>
+      <div data-created tabindex="-1" hidden>
+        <p class="notice success" id="created-message">Your deal is open. Send this link to the other side.</p>
+        <a class="deal-link address" data-deal-link aria-describedby="created-message"></a>
         <button type="button" class="primary" data-copy>Copy deal link</button>
         <p class="copy-status" role="status" data-copy-status></p>
       </div>

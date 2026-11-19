@@ -11,7 +11,6 @@ const invoke = (method, params = []) => wallet.request({ method, params });
 function putNotice(element, message, tone = "") {
   element.textContent = message ?? "";
   element.dataset.tone = tone;
-  element.hidden = !message;
 }
 
 async function walletState() {
@@ -69,6 +68,25 @@ function actionFlow(root, signal, prepare) {
   let busy = false;
   let revision = 0;
   let pending;
+  let returnFocus = false;
+
+  function disableButton() {
+    returnFocus ||= document.activeElement === button;
+    button.disabled = true;
+  }
+
+  function restoreFocus() {
+    if (!returnFocus) return;
+    returnFocus = false;
+    if (document.activeElement !== document.body && document.activeElement !== button) return;
+    if (!button.hidden && !button.disabled) {
+      button.focus();
+    } else {
+      const created = root.querySelector("[data-created]:not([hidden])");
+      const destination = testId(root, "deal-link") ?? created ?? (notice.textContent ? notice : null);
+      destination?.focus();
+    }
+  }
 
   async function confirm() {
     const receipt = await pending.chain.receipt(pending.hash);
@@ -95,7 +113,7 @@ function actionFlow(root, signal, prepare) {
     if (busy || signal.aborted) return;
     const request = ++revision;
     const isCurrent = () => !signal.aborted && request === revision;
-    button.disabled = true;
+    disableButton();
     if (fields) fields.disabled = Boolean(pending);
     let next;
     try {
@@ -113,6 +131,7 @@ function actionFlow(root, signal, prepare) {
     button.textContent = plan.label ?? "";
     button.disabled = !plan.run;
     putNotice(notice, problem || plan.message, problem ? "error" : plan.tone);
+    restoreFocus();
   }
 
   async function perform(event) {
@@ -120,7 +139,7 @@ function actionFlow(root, signal, prepare) {
     if (busy || button.disabled || !plan?.run) return;
     busy = true;
     ++revision;
-    button.disabled = true;
+    disableButton();
     if (fields) fields.disabled = true;
     button.textContent = plan.waiting ?? "Checking…";
     putNotice(notice, plan.activity);
@@ -136,7 +155,7 @@ function actionFlow(root, signal, prepare) {
   }
 
   (form ?? button).addEventListener(form ? "submit" : "click", perform);
-  return { send, refresh, invalidate() { ++revision; button.disabled = true; } };
+  return { send, refresh, invalidate() { ++revision; disableButton(); } };
 }
 
 async function approvalPlan(flow, chain, account, address, { symbol, decimals }, amount, allowance) {
