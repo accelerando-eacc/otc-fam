@@ -219,6 +219,8 @@ input::placeholder { color: #6f675c; opacity: 1; }
 input:disabled { background: #f7f4ee; }
 .input-unit { display: flex; align-items: center; gap: .7rem; }
 .input-unit input { width: 8rem; }
+.recovery-option { display: flex; align-items: center; gap: .55rem; }
+.recovery-option input { width: 1rem; min-height: 1rem; margin: 0; flex-shrink: 0; }
 
 .deal-link {
   display: block;

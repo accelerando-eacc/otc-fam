@@ -1,5 +1,5 @@
 import {
-  explain, formatAmount, isAddress, loadChain, MAX_UINT, parseAmount, quantity, ZERO_ADDRESS,
+  explain, formatAmount, isAddress, isHash, loadChain, MAX_UINT, parseAmount, quantity, ZERO_ADDRESS,
 } from "./chain.js";
 
 const target = document.querySelector("#app");
@@ -91,13 +91,11 @@ function actionFlow(root, signal, prepare) {
   async function confirm() {
     const receipt = await pending.chain.receipt(pending.hash);
     if (!receipt) throw new Error("Waiting for confirmation. Check again before sending another transaction.");
-    const confirmed = pending;
     pending = null;
     if (BigInt(receipt.status) !== 1n) throw new Error("The transaction failed on chain. Review the current deal and try again.");
-    confirmed.onConfirmation?.(receipt, confirmed.hash);
   }
 
-  async function send(chain, account, tx, onConfirmation) {
+  async function send(chain, account, tx, onSubmitted) {
     await chain.simulate(tx, account);
     const current = await walletState();
     if (current.account !== account || current.chainId !== chain.chainId) {
@@ -105,7 +103,8 @@ function actionFlow(root, signal, prepare) {
     }
     if (signal.aborted) return;
     const hash = await invoke("eth_sendTransaction", [{ ...tx, from: account }]);
-    pending = { chain, hash, onConfirmation };
+    if (onSubmitted) return onSubmitted(hash);
+    pending = { chain, hash };
     await confirm();
   }
 
@@ -114,7 +113,7 @@ function actionFlow(root, signal, prepare) {
     const request = ++revision;
     const isCurrent = () => !signal.aborted && request === revision;
     disableButton();
-    if (fields) fields.disabled = Boolean(pending);
+    if (fields) fields.disabled = Boolean(pending || plan?.lockFields);
     let next;
     try {
       next = pending
@@ -130,6 +129,7 @@ function actionFlow(root, signal, prepare) {
     button.hidden = !plan.label;
     button.textContent = plan.label ?? "";
     button.disabled = !plan.run;
+    if (fields) fields.disabled = Boolean(pending || plan.lockFields);
     putNotice(notice, problem || plan.message, problem ? "error" : plan.tone);
     restoreFocus();
   }
@@ -302,32 +302,103 @@ function draftTerms(form) {
   return { sell, buy, taker, seconds, sellText: value("sell-amount"), buyText: value("buy-amount") };
 }
 
+const CHECK_WITH_WALLET_AFTER = 30 * 60 * 1000;
+
+function writeCreation(key, record) {
+  try {
+    if (record) sessionStorage.setItem(key, JSON.stringify(record));
+    else sessionStorage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readCreation(key) {
+  let value;
+  try {
+    value = JSON.parse(sessionStorage.getItem(key));
+  } catch {
+    writeCreation(key, null);
+    return null;
+  }
+  if (value === null) return null;
+  if (!isHash(value?.hash) || !Number.isSafeInteger(value.submittedAt) || value.submittedAt < 1) {
+    writeCreation(key, null);
+    return null;
+  }
+  const record = { hash: value.hash.toLowerCase(), submittedAt: Math.min(value.submittedAt, Date.now()) };
+  if (record.submittedAt !== value.submittedAt) writeCreation(key, record);
+  return record;
+}
+
 function newScreen(root, signal) {
   const form = root.querySelector("form");
+  const fields = form.querySelector(".draft");
+  const recovery = form.querySelector("[data-create-recovery]");
+  const discard = recovery.querySelector("input");
   const created = root.querySelector("[data-created]");
-  const createdNotice = created.querySelector(".notice");
   const link = created.querySelector("[data-deal-link]");
   const copy = created.querySelector("[data-copy]");
   const copyStatus = created.querySelector("[data-copy-status]");
   let chain;
+  let creationKey, pendingCreation, initialCheck;
+  let recoveryWarning = "";
+  let creationFailed = false;
+  let storedInTab = true;
 
-  function showCreated(receipt, hash, account) {
-    if (signal.aborted) return;
+  function showCreated(id) {
+    const url = new URL(location.href);
+    url.hash = "/d/" + id;
+    link.href = url.href;
+    link.textContent = url.href;
+    link.dataset.testid = "deal-link";
     form.hidden = true;
     created.hidden = false;
-    try {
-      const id = chain.createdId(receipt, account);
-      const url = new URL(location.href);
-      url.hash = "/d/" + id;
-      link.href = url.href;
-      link.textContent = url.href;
-      link.dataset.testid = "deal-link";
-    } catch {
-      link.hidden = true;
-      copy.hidden = true;
-      createdNotice.classList.remove("success");
-      putNotice(createdNotice, "The transaction confirmed, but the deal ID could not be read. Check the receipt for " + hash + " in your wallet.", "error");
+  }
+
+  function clearCreation() {
+    pendingCreation = null;
+    writeCreation(creationKey, null);
+    recovery.hidden = true;
+    discard.checked = false;
+  }
+
+  function trackingMessage() {
+    return "Waiting for confirmation. Check " + pendingCreation.hash + " in your wallet." +
+      (storedInTab ? "" : " Keep this tab open so the page can finish checking.");
+  }
+
+  async function checkCreation({ stopTracking = false } = {}) {
+    const { hash } = pendingCreation;
+    const receipt = await chain.receipt(hash, { attempts: stopTracking ? 1 : 16, signal });
+    if (signal.aborted) return;
+    if (!receipt) {
+      if (!stopTracking) return;
+      if (await chain.hasTransaction(hash)) {
+        throw new Error("The network still sees this transaction. Check its status in your wallet.");
+      }
+      if (signal.aborted) return;
+      clearCreation();
+      form.reset();
+      return;
     }
+    let id;
+    try {
+      id = chain.createdId(receipt, hash);
+    } catch (error) {
+      throw new Error(error.message + " Check " + hash + " in your wallet.");
+    }
+    if (id === null) creationFailed = true;
+    else showCreated(id);
+    clearCreation();
+  }
+
+  async function trackCreation(hash) {
+    if (!isHash(hash)) throw new Error("Your wallet did not return a transaction hash. Check its activity before trying again.");
+    pendingCreation = { hash: hash.toLowerCase(), submittedAt: Date.now() };
+    storedInTab = writeCreation(creationKey, pendingCreation);
+    if (!signal.aborted) await checkCreation();
   }
 
   const flow = actionFlow(root, signal, async (isCurrent) => {
@@ -335,6 +406,40 @@ function newScreen(root, signal) {
     chain ??= await getChain();
     if (!isCurrent()) return {};
     showNetwork(root, chain);
+    if (!creationKey) {
+      creationKey = "otc.fam.pending-create/" + chain.chainId + "/" + chain.contract;
+      pendingCreation = readCreation(creationKey);
+      if (pendingCreation) {
+        fields.disabled = true;
+        fields.hidden = true;
+        testId(root, "primary-action").textContent = "Checking confirmation…";
+        putNotice(testId(root, "notice"), trackingMessage());
+        initialCheck = checkCreation().catch((error) => {
+          recoveryWarning = explain(error, "Could not verify the submitted deal. Check its status in your wallet.");
+        });
+      }
+    }
+    await initialCheck;
+    if (!isCurrent() || !created.hidden) return {};
+    if (creationFailed) {
+      return { label: "Back to form", lockFields: true, tone: "error",
+        message: "The transaction failed on chain. No deal was created.",
+        run: () => { creationFailed = false; } };
+    }
+    if (pendingCreation) {
+      recovery.hidden = Date.now() - pendingCreation.submittedAt < CHECK_WITH_WALLET_AFTER;
+      const stopTracking = !recovery.hidden && discard.checked;
+      return {
+        label: stopTracking ? "Stop tracking" : "Check transaction",
+        waiting: "Checking confirmation…", lockFields: true,
+        message: recoveryWarning || trackingMessage(), tone: recoveryWarning ? "error" : "",
+        run: async () => {
+          recoveryWarning = "";
+          await checkCreation({ stopTracking });
+        },
+      };
+    }
+    fields.hidden = false;
     const session = await walletState();
     const connectOrSwitch = walletAction(chain, session, "create a deal");
     if (connectOrSwitch) return connectOrSwitch;
@@ -375,8 +480,7 @@ function newScreen(root, signal) {
         const now = wallTime();
         const expiry = (blockTime > now ? blockTime : now) + draft.seconds;
         if (expiry >= 2n ** 64n) throw new Error("This offer lifetime is too long.");
-        await flow.send(chain, account, chain.create({ ...draft, sellAmount, buyAmount, expiry }),
-          (receipt, hash) => showCreated(receipt, hash, account));
+        await flow.send(chain, account, chain.create({ ...draft, sellAmount, buyAmount, expiry }), trackCreation);
       },
     };
   });

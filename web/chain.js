@@ -1,6 +1,7 @@
 export const ZERO_ADDRESS = "0x" + "0".repeat(40);
 export const MAX_UINT = 2n ** 256n - 1n;
 export const isAddress = (value) => typeof value === "string" && /^0x[\da-f]{40}$/i.test(value);
+export const isHash = (value) => typeof value === "string" && /^0x[\da-f]{64}$/i.test(value);
 export const quantity = (value) => "0x" + value.toString(16);
 
 // Selectors for IOtcDeals and the ERC-20 functions used by the page.
@@ -115,6 +116,7 @@ export async function loadChain() {
   const tokens = new Map();
   return {
     chainId,
+    contract: contract.toLowerCase(),
     async deal(id) {
       const values = words(await call(contract, calldata(GET_DEAL, id)));
       if (values.length !== 8 || asUint(values[7]) > 3n) throw new Error("Could not read this deal.");
@@ -164,21 +166,39 @@ export async function loadChain() {
         throw new Error("The token refused this approval.");
       }
     },
-    async receipt(hash) {
-      for (let attempt = 0; attempt < 16; attempt++) {
+    async receipt(hash, { attempts = 16, signal } = {}) {
+      for (let attempt = 0; attempt < attempts && !signal?.aborted; attempt++) {
         const receipt = await rpc("eth_getTransactionReceipt", [hash]);
         if (receipt) return receipt;
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 1000));
       }
       return null;
     },
-    createdId(receipt, account) {
-      const event = receipt.logs.find(({ address, topics }) =>
-        address.toLowerCase() === contract.toLowerCase() && topics[0] === DEAL_CREATED &&
-        topics[2]?.slice(26).toLowerCase() === account.slice(2).toLowerCase(),
+    async hasTransaction(hash) {
+      return await rpc("eth_getTransactionByHash", [hash]) !== null;
+    },
+    createdId(receipt, hash) {
+      if (!isHash(receipt.transactionHash) || receipt.transactionHash.toLowerCase() !== hash ||
+          !isHash(receipt.blockHash) || !isAddress(receipt.from) ||
+          !isAddress(receipt.to) || receipt.to.toLowerCase() !== contract.toLowerCase()) {
+        throw new Error("Could not verify the receipt for this transaction.");
+      }
+      if (receipt.status === "0x0") return null;
+      if (receipt.status !== "0x1" || !Array.isArray(receipt.logs)) {
+        throw new Error("Could not read the transaction status.");
+      }
+      const makerTopic = calldata("0x", receipt.from);
+      const events = receipt.logs.filter((log) =>
+        log?.removed !== true && isAddress(log?.address) && log.address.toLowerCase() === contract.toLowerCase() &&
+        isHash(log.transactionHash) && log.transactionHash.toLowerCase() === hash && log.data === "0x" &&
+        Array.isArray(log.topics) && log.topics.length === 4 && log.topics.every(isHash) &&
+        log.topics[0].toLowerCase() === DEAL_CREATED && log.topics[2].toLowerCase() === makerTopic &&
+        /^0x0{24}[\da-f]{40}$/i.test(log.topics[3]),
       );
-      if (!event) throw new Error("The transaction confirmed without a deal ID. Check its receipt in your wallet.");
-      return BigInt(event.topics[1]).toString();
+      if (events.length !== 1 || BigInt(events[0].topics[1]) === 0n) {
+        throw new Error("The receipt did not verify a deal creation.");
+      }
+      return BigInt(events[0].topics[1]).toString();
     },
   };
 }
