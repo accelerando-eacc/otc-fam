@@ -350,6 +350,7 @@ function newScreen(root, signal) {
   function showCreated(id) {
     const url = new URL(location.href);
     url.hash = "/d/" + id;
+    history.replaceState(history.state, "", url.href);
     link.href = url.href;
     link.textContent = url.href;
     link.dataset.testid = "deal-link";
@@ -493,6 +494,13 @@ function newScreen(root, signal) {
     debounce = setTimeout(refresh, 140);
   });
   signal.addEventListener("abort", () => clearTimeout(debounce), { once: true });
+  link.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey ||
+        event.shiftKey || event.altKey || link.href !== location.href) return;
+    // The address already matches the link, so render the deal on same-tab activation.
+    event.preventDefault();
+    route();
+  });
   copy.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(link.href);
